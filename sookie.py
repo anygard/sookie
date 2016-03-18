@@ -45,7 +45,8 @@ import time
 def main(args):
 
     if args['--logsocket']:
-        logserver = tuple(args['--logsocket'].split(':'))
+        (host, port) = tuple(args['--logsocket'].split(':'))
+        logserver = (host, int(port))
     else:
         logserver = None
     logfacility = args['--logfacility']
@@ -53,16 +54,19 @@ def main(args):
 
     logger = logging.getLogger(os.path.basename(__file__))
 
-    localsyslog = logging.handlers.SysLogHandler()
+    localsyslog = logging.handlers.SysLogHandler(address='/dev/log')
+    stdout = logging.StreamHandler(sys.stdout)
+    lfacility = logging.handlers.SysLogHandler.facility_names[logfacility]
+    llevel = logging.handlers.SysLogHandler.priority_names[loglevel]
     if logserver:
         remotesyslog = logging.handlers.SysLogHandler(
                 address=logserver,
-                facility=logging.handlers.SysLogHandler.facility_names[logfacility]
+                facility=lfacility
             )
     try:
-        localsyslog.setLevel(logging.handlers.SysLogHandler.priority_names[loglevel])
+        localsyslog.setLevel(llevel)
         if logserver:
-            remotesyslog.setLevel(logging.handlers.SysLogHandler.priority_names[loglevel])
+            remotesyslog.setLevel(llevel)
     except KeyError:
         print "Invalid argument to %s (%s)" % ('--loglevel', args['--loglevel'])
         sys.exit(2)
@@ -75,6 +79,7 @@ def main(args):
         remotesyslog.setFormatter(formatter)
 
     logger.addHandler(localsyslog)
+    logger.addHandler(stdout)
     if logserver:
         logger.addHandler(remotesyslog)
 
@@ -88,9 +93,10 @@ def main(args):
         option = '--retry'
         interval = int(args[option])
     except ValueError:
-        print "Invalid argument to %s (%s)" % (option, args[option])
+        logger.error("Invalid argument to %s (%s)" % (option, args[option]))
         sys.exit(2)
-    server = tuple(args['<socket>'].split(':'))
+    (host, port) = tuple(args['<socket>'].split(':'))
+    server = (host, int(port))
     timeout_time = time.time() + timeout
     is_timeout = False
 
@@ -104,15 +110,14 @@ def main(args):
         try:
             sock.connect(server)
             logger.info('Connect')
-            print server
             logger.debug('%ds to spare' % int(timeout_time-t))
             break
         except socket.error:
-            logger.debug('Waiting %d more seconds' % step)
-            time.sleep(step)
+            logger.debug('Waiting %d more seconds' % interval)
+            time.sleep(interval)
         except TypeError, E:
-            print E
-            print "Invalid socket: %s" % args['<socket>']
+            logger.error(E)
+            logger.error("Invalid socket: %s" % args['<socket>'])
             sys.exit(2)
 
     logger.info('%s Ending' % __file__)
