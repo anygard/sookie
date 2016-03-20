@@ -1,8 +1,9 @@
+#!/usr/bin/env python
 
 """ Sookie, is a waiter, waits for a socket to be listening then it moves on
 
 Usage:
-    sookie <socket> [--timeout=<to>] [--retry=<rt>] [--logsocket=<ls>] [--logfacility=<lf>] [--loglevel=<ll>]
+    sookie <socket> [--timeout=<to>] [--retry=<rt>] [--logsocket=<ls>] [--loglevel=<ll>] [--quiet]
     sookie -h | --help
     sookie --version
 
@@ -12,8 +13,8 @@ Options:
     --timeout=<to>         Timout in seconds [default: 1800]
     --retry=<rt>           Interval between retries in seconds [default: 20]
     --logsocket=<ls>       Socket to send syslog messages to, only logging to local syslog if omitted.
-    --logfacility=<lf>     The syslog facility to use for logging [default: user]
     --loglevel=<ll>        The syslog severity level to use, i.e the verbosity level [default: info]
+    --quiet                Suppress output to stdout
     <socket>               Socket to wait for, 'host:port'
 
 
@@ -22,8 +23,7 @@ inter server dependencies in complex environments. All it does is wait for a
 socket to start listening for connections then it exits. It is supposed to be
 used as a "smart" sleep in a startup script. 
 
-Sookie logs to syslog, and optionally to a remote syslog server aswell. Level
-and facility values can be taken from syslog(1)
+Sookie accepts the following logleves debug,info,warning,error,critical.
 
 Sookie Stackhouse is a waitress.
 
@@ -37,10 +37,25 @@ exitcodes
 import docopt
 import logging
 import logging.handlers
+import platform
 import os
 import socket
 import sys
 import time
+
+platform_socket = {
+        'Linux': '/dev/log',
+        'Darwin': '/var/run/syslog',
+        }
+
+levels = {
+        'notset': logging.NOTSET,
+        'debug': logging.DEBUG,
+        'info': logging.INFO,
+        'warning': logging.WARNING,
+        'error': logging.ERROR,
+        'critical': logging.CRITICAL,
+        }
 
 def main(args):
 
@@ -49,30 +64,32 @@ def main(args):
         logserver = (host, int(port))
     else:
         logserver = None
-    logfacility = args['--logfacility']
-    loglevel = args['--loglevel']
+
+    pf = platform.system()
+    if pf in platform_socket.keys():
+        localaddr=platform_socket[pf]
+    else:
+        localaddr=('localhost',514)
 
     logger = logging.getLogger(os.path.basename(__file__))
-
-    localsyslog = logging.handlers.SysLogHandler(address='/dev/log')
-    stdout = logging.StreamHandler(sys.stdout)
-    lfacility = logging.handlers.SysLogHandler.facility_names[logfacility]
-    llevel = logging.handlers.SysLogHandler.priority_names[loglevel]
-    if logserver:
-        remotesyslog = logging.handlers.SysLogHandler(
-                address=logserver,
-                facility=lfacility
-            )
     try:
-        localsyslog.setLevel(llevel)
+        loglevel = levels[args['--loglevel'].lower()]
+
+        stdout = logging.StreamHandler(sys.stdout)
+        localsyslog = logging.handlers.SysLogHandler(address=localaddr)
         if logserver:
-            remotesyslog.setLevel(llevel)
+            remotesyslog = logging.handlers.SysLogHandler(address=logserver)
+
+        stdout.setLevel(loglevel)
+        localsyslog.setLevel(loglevel)
+        if logserver:
+            remotesyslog.setLevel(loglevel)
     except KeyError:
         print "Invalid argument to %s (%s)" % ('--loglevel', args['--loglevel'])
         sys.exit(2)
 
 
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
 
     localsyslog.setFormatter(formatter)
     if logserver:
@@ -83,6 +100,7 @@ def main(args):
     if logserver:
         logger.addHandler(remotesyslog)
 
+    print localsyslog.__dict__
     logger.info('%s Starting' % __file__)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
