@@ -3,7 +3,7 @@
 """ Sookie, is a waiter, waits for a socket to be listening then it moves on
 
 Usage:
-    sookie <socket> [--timeout=<to>] [--retry=<rt>] [--logsocket=<ls>] [--loglevel=<ll>] [--quiet]
+    sookie <socket> [--timeout=<to>] [--retry=<rt>] [--logsocket=<ls>] [--loglevel=<ll>] [--verbose]
     sookie -h | --help
     sookie --version
 
@@ -14,7 +14,7 @@ Options:
     --retry=<rt>           Interval between retries in seconds [default: 20]
     --logsocket=<ls>       Socket to send syslog messages to, only logging to local syslog if omitted.
     --loglevel=<ll>        The syslog severity level to use, i.e the verbosity level [default: info]
-    --quiet                Suppress output to stdout
+    --verbose              Also log to stdout
     <socket>               Socket to wait for, 'host:port'
 
 
@@ -65,6 +65,11 @@ def main(args):
     else:
         logserver = None
 
+    if args['--verbose']:
+        verbose=True
+    else:
+        verbose=False
+
     pf = platform.system()
     if pf in platform_socket.keys():
         localaddr=platform_socket[pf]
@@ -75,17 +80,20 @@ def main(args):
     try:
         loglevel = levels[args['--loglevel'].lower()]
 
-        stdout = logging.StreamHandler(sys.stdout)
         localsyslog = logging.handlers.SysLogHandler(address=localaddr)
+        if verbose:
+            stdout = logging.StreamHandler(sys.stdout)
         if logserver:
-            remotesyslog = logging.handlers.SysLogHandler(address=logserver)
+            remotesyslog = logging.handlers.SysLogHandler(address=logserver,socktype=socket.SOCK_STREAM)
 
-        stdout.setLevel(loglevel)
+        logger.setLevel(loglevel)
         localsyslog.setLevel(loglevel)
+        if verbose:
+            stdout.setLevel(loglevel)
         if logserver:
             remotesyslog.setLevel(loglevel)
     except KeyError:
-        print "Invalid argument to %s (%s)" % ('--loglevel', args['--loglevel'])
+        logger.error("Invalid argument to %s (%s)" % ('--loglevel', args['--loglevel']))
         sys.exit(2)
 
 
@@ -96,11 +104,11 @@ def main(args):
         remotesyslog.setFormatter(formatter)
 
     logger.addHandler(localsyslog)
-    logger.addHandler(stdout)
+    if verbose:
+        logger.addHandler(stdout)
     if logserver:
         logger.addHandler(remotesyslog)
 
-    print localsyslog.__dict__
     logger.info('%s Starting' % __file__)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
